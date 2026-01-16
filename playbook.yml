@@ -1,37 +1,100 @@
-- name: Deploy 3-Tier Application
+- name: Deploy Full-Stack App to Dev Environment
   hosts: localhost
   become: true
-
-  vars_files:
-    - vars/main.yml
-    - vars/secrets.yml
-
+  gather_facts: true
+  
+  vars:
+    github_actor: "{{ github_actor }}"
+    github_token: "{{ github_token }}"
+    mysql_root_password: "{{ mysql_root_password }}"
+    db_host: "{{ db_host }}"
+    db_port: "{{ db_port }}"
+    db_name: "{{ db_name }}"
+    db_user: "{{ db_user }}"
+  
   tasks:
-    - name: Login to Docker Hub
-      community.docker.docker_login:
-        username: "{{ DOCKER_USERNAME }}"
-        password: "{{ DOCKER_PASSWORD }}"
-
-    - name: Build and push Docker images
-      community.docker.docker_image:
-        name: "{{ item.name }}"
-        tag: "{{ item.tag }}"
-        build:
-          path: "{{ item.path }}"
-        push: true
-        source: build
-      loop: "{{ images }}"
-
-    - name: Create db_password.txt
-      copy:
-        dest: ./db_password.txt
-        content: "{{ DB_PASSWORD }}"
-
-    - name: Run Docker Compose
-      community.docker.docker_compose_v2:
-        project_src: .
-
-    - name: Remove db_password.txt
-      file:
-        path: ./db_password.txt
-        state: absent
+    # ======= Verify Docker Installation =========
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check 
+      ignore_errors: true
+    
+    - name: Install Docker if not present
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+      when: docker_check.rc != 0
+    
+    # ========= Ensure Docker Service Running =========
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+    
+    # ======== GitHub Container Registry Login ========
+    - name: Log in to GitHub Container Registry
+      command: >
+        docker login ghcr.io 
+        -u {{ github_actor }} 
+        -p {{ github_token }}
+      no_log: true
+    
+    # ======== Deploy with Docker Compose ============
+    - name: Deploy application with Docker Compose
+      command: docker-compose up -d
+      args:
+        chdir: "{{ playbook_dir }}"
+      environment:
+        GITHUB_ACTOR: "{{ github_actor }}"
+        MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+        DB_HOST: "{{ db_host }}"
+        DB_PORT: "{{ db_port }}"
+        DB_NAME: "{{ db_name }}"
+        DB_USER: "{{ db_user }}"
+    
+    # ======== Wait for Services to be Healthy ==========
+    - name: Wait for MySQL to be healthy
+      command: docker exec mysql-db mysqladmin ping -h localhost -u root -p{{ mysql_root_password }}
+      register: mysql_health
+      until: mysql_health.rc == 0
+      retries: 10
+      delay: 5
+      ignore_errors: true
+      no_log: true
+    
+    - name: Wait for Backend to be healthy
+      uri:
+        url: http://localhost:5000
+        status_code: 200
+      register: backend_health
+      until: backend_health.status == 200
+      retries: 10
+      delay: 5
+      ignore_errors: true
+    
+    - name: Wait for Frontend to be healthy
+      uri:
+        url: http://localhost:8080
+        status_code: 200
+      register: frontend_health
+      until: frontend_health.status == 200
+      retries: 10
+      delay: 5
+      ignore_errors: true
+    
+    # ========= Display Deployment Status =============
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "🎉 Deployment completed!"
+          - "📊 Services Status:"
+          - "  - MySQL: {{ 'Healthy ✅' if mysql_health.rc == 0 else 'Unhealthy ⚠️' }}"
+          - "  - Backend: {{ 'Healthy ✅' if backend_health.status == 200 else 'Unhealthy ⚠️' }}"
+          - "  - Frontend: {{ 'Healthy ✅' if frontend_health.status == 200 else 'Unhealthy ⚠️' }}"
+          - ""
+          - "🌐 Access URLs:"
+          - "  - Frontend: http://localhost:8080"
+          - "  - Backend: http://localhost:5000"
+          - "  - MySQL: localhost:3306"
