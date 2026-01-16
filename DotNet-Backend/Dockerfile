@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
 # Copy published files from CI pipeline
-COPY ./build-output .
+COPY ./build_output .
 
 EXPOSE 8080
 

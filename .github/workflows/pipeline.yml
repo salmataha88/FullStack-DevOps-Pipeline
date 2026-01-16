@@ -93,10 +93,17 @@ jobs:
           image-name: react-frontend
           tag: ${{ github.sha }}
       
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Tag as latest
         run: |
           docker tag ghcr.io/${{ github.actor }}/react-frontend:${{ github.sha }} \
-                     ghcr.io/${{ github.actor }}/react-frontend:latest
+                    ghcr.io/${{ github.actor }}/react-frontend:latest
           docker push ghcr.io/${{ github.actor }}/react-frontend:latest
       
       - name: Run Trivy vulnerability scanner
