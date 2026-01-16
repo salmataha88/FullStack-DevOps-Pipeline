@@ -1,0 +1,116 @@
+name: Full-Stack CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  
+  pull_request:
+    branches:
+      - main
+  
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  # ========== .NET Backend CI ==============
+  dotnet-ci:
+    name: Build .NET Backend
+    uses: salmataha88/Automation-Workflows/.github/workflows/dotnet.yml@main
+    with:
+      dotnet-version: '8.0'
+      project-path: './DotNet-Backend'
+      build-configuration: 'Release'
+      run-tests: true
+
+  # ========== React Frontend CI ============
+  react-ci:
+    name: Build React Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./React-Frontend
+
+      - name: Build React app
+        run: npm run build
+        working-directory: ./React-Frontend
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: react-dist
+          path: React-Frontend/dist/
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: react-dist
+          path: dist/
+      
+      - name: Run GitLeaks for secret detection
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload GitLeaks SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: gitleaks-react
+      
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+      
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-react
+      
+      - name: Build and Push React Docker Image
+        uses: salmataha88/Automation-Workflows/.github/actions/react-docker-s2i@main
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: react-frontend
+          tag: ${{ github.sha }}
+      
+      - name: Tag as latest
+        run: |
+          docker tag ghcr.io/${{ github.actor }}/react-frontend:${{ github.sha }} \
+                     ghcr.io/${{ github.actor }}/react-frontend:latest
+          docker push ghcr.io/${{ github.actor }}/react-frontend:latest
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.33.1
+        continue-on-error: true
+        with:
+          image-ref: ghcr.io/${{ github.actor }}/react-frontend:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+      
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-react
