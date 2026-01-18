@@ -122,3 +122,35 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
           category: trivy-react
+
+  # ======= Deploy to Dev Environment =======
+  deploy-dev:
+    name: Deploy to Dev (Local)
+    runs-on: [self-hosted, linux]
+    needs: [dotnet-ci, react-ci]
+    environment:
+      name: dev
+      url: http://localhost:8080
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🚀 Deploy with Ansible
+        run: |
+          ansible-playbook playbook.yml \
+            -e "github_actor=${{ github.actor }}" \
+            -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
+            -e "mysql_root_password=${{ secrets.MYSQL_ROOT_PASSWORD }}" \
+            -e "db_host=${{ vars.DB_HOST }}" \
+            -e "db_port=${{ vars.DB_PORT }}" \
+            -e "db_name=${{ vars.DB_NAME }}" \
+            -e "db_user=${{ vars.DB_USER }}"
+      
+      - name: Deployment Summary
+        run: |
+          echo "Dev Deployment Complete!🎉"
+          echo "Services:"
+          echo "  - Frontend: http://localhost:8080"
+          echo "  - Backend: http://localhost:5000"
+          echo "  - MySQL: localhost:3306"
