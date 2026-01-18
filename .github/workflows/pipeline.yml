@@ -23,7 +23,8 @@ jobs:
     uses: salmataha88/Automation-Workflows/.github/workflows/dotnet.yml@main
     with:
       dotnet-version: '8.0'
-      project-path: './DotNet-Backend'
+      project-Dir: './DotNet-Backend'
+      project-path: './DotNet-Backend/API.csproj'
       build-configuration: 'Release'
       run-tests: true
 
