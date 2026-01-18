@@ -43,7 +43,7 @@
     
     # ======== Deploy with Docker Compose ============
     - name: Deploy application with Docker Compose
-      command: docker-compose up -d
+      command: docker compose up -d
       args:
         chdir: "{{ playbook_dir }}"
       environment:
