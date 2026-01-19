@@ -10,6 +10,16 @@ on:
       - main
   
   workflow_dispatch:
+   inputs:
+    environment:
+      description: 'Deployment Environment'
+      required: true
+      default: 'dev'
+      type: choice
+      options:
+        - dev
+        - staging
+        - production
 
 permissions:
   contents: read
@@ -125,6 +135,7 @@ jobs:
 
   # ======= Deploy to Dev Environment =======
   deploy-dev:
+    if: github.event.inputs.environment == 'dev'
     name: Deploy to Dev (Local)
     runs-on: [self-hosted, linux]
     needs: [dotnet-ci, react-ci]
@@ -154,3 +165,51 @@ jobs:
           echo "  - Frontend: http://localhost:8080"
           echo "  - Backend: http://localhost:5000"
           echo "  - MySQL: localhost:3306"
+
+  # ====== Deploy React to Railway (Using GHCR Image) ======
+  deploy-react-railway:
+    if: github.event.inputs.environment != 'dev'
+    name: Deploy React to Railway
+    runs-on: ubuntu-latest
+    needs: [react-ci]
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: ${{ vars.RAILWAY_REACT_URL }}
+    
+    steps:
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+      
+      - name: Deploy React from GHCR
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway link ${{ secrets.RAILWAY_REACT_SERVICE_ID }}
+          railway variables --set VITE_API_URL=${{ vars.RAILWAY_DOTNET_URL }}
+          railway up --detach --image ghcr.io/${{ github.actor }}/react-frontend:${{ github.sha }}
+
+  # ====== Deploy .NET to Railway (Using GHCR Image) ======
+  deploy-dotnet-railway:
+    if: github.event.inputs.environment != 'dev'
+    name: Deploy .NET Backend to Railway
+    runs-on: ubuntu-latest
+    needs: [dotnet-ci]
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: ${{ vars.RAILWAY_DOTNET_URL }}
+    
+    steps:
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+      
+      - name: Deploy .NET from GHCR
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway link ${{ secrets.RAILWAY_DOTNET_SERVICE_ID }}
+          railway variables --set ConnectionStrings__DefaultConnection="Server=${{ vars.DB_HOST }};Port=${{ vars.DB_PORT }};Database=${{ vars.DB_NAME }};User=${{ vars.DB_USER }};Password=${{ secrets.MYSQL_ROOT_PASSWORD }};"
+          railway up --detach --image ghcr.io/${{ github.actor }}/dotnet-backend:${{ github.sha }}
